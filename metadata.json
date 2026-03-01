@@ -1,0 +1,7 @@
+{
+  "name": "Future Care Coaching Center EMS",
+  "description": "A comprehensive Education Management System for coaching centers featuring role-based access, financial analytics, automated fine systems, and attendance tracking.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
