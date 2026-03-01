@@ -23,6 +23,9 @@ export interface User {
   hscResult?: string;
   monthlyFee?: number;
   batch?: string;
+  assignedClass?: string;
+  pastAddress?: string;
+  nidNumber?: string;
   status: 'active' | 'disabled';
   createdAt?: string; // YYYY-MM-DD
 }
@@ -93,6 +96,23 @@ export interface Notification {
   message: string;
   timestamp: number;
   read: boolean;
+}
+
+export interface Salary {
+  id: string;
+  teacherId: string;
+  amount: number;
+  date: string; // YYYY-MM-DD
+  month: string; // YYYY-MM
+}
+
+export interface DashboardHistory {
+  id: string;
+  month: string; // YYYY-MM
+  collected: number;
+  salaryPaid: number;
+  expenses: number;
+  profit: number;
 }
 
 export interface SystemSettings {

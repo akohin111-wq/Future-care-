@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, UserRole, SystemSettings, Payment, Attendance, Expense, Notice, Notification, Result, AdmissionApplication } from './types';
+import { User, UserRole, SystemSettings, Payment, Attendance, Expense, Notice, Notification, Result, AdmissionApplication, Salary, DashboardHistory } from './types';
 import { CENTER_NAME, DEVELOPER_INFO, ABSENT_FINE_AMOUNT, DAILY_LATE_FEE_AMOUNT, PAYMENT_DEADLINE_DAY } from './constants';
 import LoginPage from './views/LoginPage';
 import OwnerDashboard from './views/OwnerDashboard';
@@ -21,6 +21,8 @@ const App: React.FC = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [admissionApplications, setAdmissionApplications] = useState<AdmissionApplication[]>([]);
   const [notices, setNotices] = useState<Notice[]>([]);
+  const [salaries, setSalaries] = useState<Salary[]>([]);
+  const [dashboardHistory, setDashboardHistory] = useState<DashboardHistory[]>([]);
   const [settings, setSettings] = useState<SystemSettings>({
     absentFineEnabled: true,
     lateFeeEnabled: true,
@@ -48,7 +50,9 @@ const App: React.FC = () => {
           dbNotifications,
           dbApplications,
           dbNotices,
-          dbSettings
+          dbSettings,
+          dbSalaries,
+          dbHistory
         ] = await Promise.all([
           db.getUsers(),
           db.getPayments(),
@@ -58,7 +62,9 @@ const App: React.FC = () => {
           db.getNotifications(),
           db.getAdmissionApplications(),
           db.getNotices(),
-          db.getSettings()
+          db.getSettings(),
+          db.getSalaries(),
+          db.getDashboardHistory()
         ]);
 
         if (dbUsers.length > 0) {
@@ -118,6 +124,8 @@ const App: React.FC = () => {
         }
 
         if (dbSettings) setSettings(dbSettings);
+        setSalaries(dbSalaries);
+        setDashboardHistory(dbHistory);
       } catch (error) {
         console.error("Error loading data from Supabase:", error);
       } finally {
@@ -138,6 +146,61 @@ const App: React.FC = () => {
   useEffect(() => { if (!loading && expenses.length > 0) db.saveExpenses(expenses); }, [expenses, loading]);
   useEffect(() => { if (!loading && admissionApplications.length > 0) db.saveAdmissionApplications(admissionApplications); }, [admissionApplications, loading]);
   useEffect(() => { if (!loading && notices.length > 0) db.saveNotices(notices); }, [notices, loading]);
+  useEffect(() => { if (!loading && salaries.length > 0) db.saveSalaries(salaries); }, [salaries, loading]);
+  useEffect(() => { if (!loading && dashboardHistory.length > 0) db.saveDashboardHistories(dashboardHistory); }, [dashboardHistory, loading]);
+
+  // Monthly Dashboard Reset + History Logic
+  useEffect(() => {
+    if (loading) return;
+
+    const checkMonthlyReset = async () => {
+      const today = new Date();
+      const currentMonthStr = today.toISOString().slice(0, 7); // YYYY-MM
+      const dayOfMonth = today.getDate();
+
+      // Only reset after the 5th of the month
+      if (dayOfMonth <= 5) return;
+
+      const history = await db.getDashboardHistory();
+      const lastResetMonth = history.length > 0 ? history[history.length - 1].month : '';
+
+      // If we haven't reset for the PREVIOUS month yet
+      const prevMonthDate = new Date();
+      prevMonthDate.setMonth(prevMonthDate.getMonth() - 1);
+      const prevMonthStr = prevMonthDate.toISOString().slice(0, 7);
+
+      if (lastResetMonth !== prevMonthStr) {
+        console.log(`Performing monthly reset for ${prevMonthStr}...`);
+        
+        // Calculate totals for the previous month
+        const prevMonthPayments = payments.filter(p => p.month === prevMonthStr && (p.status === 'APPROVED' || !p.status));
+        const collected = prevMonthPayments.reduce((sum, p) => sum + p.amount + p.finePaid + (p.extraCharge || 0), 0);
+        
+        const prevMonthSalaries = salaries.filter(s => s.month === prevMonthStr);
+        const salaryPaid = prevMonthSalaries.reduce((sum, s) => sum + s.amount, 0);
+        
+        const prevMonthExpenses = expenses.filter(e => e.date.startsWith(prevMonthStr));
+        const expenseTotal = prevMonthExpenses.reduce((sum, e) => sum + e.amount, 0);
+        
+        const profit = collected - (salaryPaid + expenseTotal);
+
+        const newHistory: DashboardHistory = {
+          id: Date.now().toString(),
+          month: prevMonthStr,
+          collected,
+          salaryPaid,
+          expenses: expenseTotal,
+          profit
+        };
+
+        setDashboardHistory(prev => [...prev, newHistory]);
+        // Note: We don't actually "delete" data, we just start fresh calculations in the UI for the "current" month.
+        // The user request says "Reset current month counters", which in my implementation means the UI filters by current month.
+      }
+    };
+
+    checkMonthlyReset();
+  }, [loading, payments, salaries, expenses]);
 
   // Calculate Attendance Rate (Rolling 30 Days)
   const calculateAttendanceRate = (studentId: string) => {
@@ -343,6 +406,9 @@ const App: React.FC = () => {
             setPayments={setPayments}
             expenses={expenses}
             setExpenses={setExpenses}
+            salaries={salaries}
+            setSalaries={setSalaries}
+            dashboardHistory={dashboardHistory}
             attendances={attendances}
             results={results}
             notices={notices}

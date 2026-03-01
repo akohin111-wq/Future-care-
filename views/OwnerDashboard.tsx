@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { User, UserRole, Payment, Expense, SystemSettings, Notice, Attendance, PaymentMethod, Result, AdmissionApplication } from '../types';
+import { User, UserRole, Payment, Expense, SystemSettings, Notice, Attendance, PaymentMethod, Result, AdmissionApplication, Salary, DashboardHistory } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { analyzeFinancialData } from '../services/geminiService';
 import { CENTER_NAME, PERSONAL_PAYMENT_CHARGE_PER_1000 } from '../constants';
@@ -13,6 +13,9 @@ interface OwnerDashboardProps {
   results: Result[];
   expenses: Expense[];
   setExpenses: React.Dispatch<React.SetStateAction<Expense[]>>;
+  salaries: Salary[];
+  setSalaries: React.Dispatch<React.SetStateAction<Salary[]>>;
+  dashboardHistory: DashboardHistory[];
   attendances: Attendance[];
   notices: Notice[];
   setNotices: React.Dispatch<React.SetStateAction<Notice[]>>;
@@ -29,11 +32,13 @@ interface OwnerDashboardProps {
 }
 
 const OwnerDashboard: React.FC<OwnerDashboardProps> = ({ 
-  users, setUsers, payments, setPayments, results, expenses, setExpenses, attendances, notices, setNotices, settings, setSettings, calculateFees, addNotification, calculateAttendanceRate, handleResetAttendance, onApprovePayment, onRejectPayment, onRemoveNotice, admissionApplications
+  users, setUsers, payments, setPayments, results, expenses, setExpenses, salaries, setSalaries, dashboardHistory, attendances, notices, setNotices, settings, setSettings, calculateFees, addNotification, calculateAttendanceRate, handleResetAttendance, onApprovePayment, onRejectPayment, onRemoveNotice, admissionApplications
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'finance' | 'notices' | 'leaderboard' | 'admission' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'finance' | 'notices' | 'leaderboard' | 'admission' | 'settings' | 'financial-dashboard' | 'history'>('overview');
   const [admissionSubTab, setAdmissionSubTab] = useState<'admissions' | 'applications'>('admissions');
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
+  const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
+  const [isAddTeacherModalOpen, setIsAddTeacherModalOpen] = useState(false);
   const [isNoticeModalOpen, setIsNoticeModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isDeductModalOpen, setIsDeductModalOpen] = useState(false);
@@ -57,6 +62,26 @@ const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   const [isOwnerPasswordModalOpen, setIsOwnerPasswordModalOpen] = useState(false);
 
   const [newUser, setNewUser] = useState<Partial<User>>({ role: UserRole.STUDENT, status: 'active' });
+  const [newStudent, setNewStudent] = useState({
+    name: '',
+    id: '',
+    password: '',
+    assignedClass: '',
+    sscResult: '',
+    hscResult: '',
+    phone: '',
+    guardianPhone: '',
+    pastAddress: '',
+    presentAddress: ''
+  });
+  const [newTeacher, setNewTeacher] = useState({
+    name: '',
+    id: '',
+    password: '',
+    phone: '',
+    presentAddress: '',
+    nidNumber: ''
+  });
   const [newNotice, setNewNotice] = useState({ title: '', content: '' });
 
   const filteredPendingPayments = payments.filter(p => {
@@ -150,8 +175,22 @@ const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   }, [paymentForm.paymentType, paymentForm.amount, paymentForm.finePaid]);
 
   const totalCollection = payments.filter(p => p.type !== 'ADJUSTMENT' && (p.status === 'APPROVED' || !p.status)).reduce((sum, p) => sum + p.amount + p.finePaid + (p.extraCharge || 0), 0);
+  const totalSalaryPaid = salaries.reduce((sum, s) => sum + s.amount, 0);
   const totalExpense = expenses.reduce((sum, e) => sum + e.amount, 0);
-  const netProfit = totalCollection - totalExpense;
+  const netProfit = totalCollection - (totalSalaryPaid + totalExpense);
+
+  // Current Month Financials
+  const currentMonthStr = new Date().toISOString().slice(0, 7);
+  const currentMonthCollection = payments
+    .filter(p => p.month === currentMonthStr && p.type !== 'ADJUSTMENT' && (p.status === 'APPROVED' || !p.status))
+    .reduce((sum, p) => sum + p.amount + p.finePaid + (p.extraCharge || 0), 0);
+  const currentMonthSalary = salaries
+    .filter(s => s.month === currentMonthStr)
+    .reduce((sum, s) => sum + s.amount, 0);
+  const currentMonthExpense = expenses
+    .filter(e => e.date.startsWith(currentMonthStr))
+    .reduce((sum, e) => sum + e.amount, 0);
+  const currentMonthProfit = currentMonthCollection - (currentMonthSalary + currentMonthExpense);
 
   useEffect(() => {
     const fetchInsights = async () => {
@@ -191,6 +230,64 @@ const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
     setUsers([...users, userWithDate]);
     setIsUserModalOpen(false);
     setNewUser({ role: UserRole.STUDENT, status: 'active' });
+  };
+
+  const handleAddStudent = () => {
+    if (!newStudent.name || !newStudent.id || !newStudent.password || !newStudent.assignedClass) {
+      alert('Required fields: Name, ID, Password, Assigned Class');
+      return;
+    }
+    if (!validatePhone(newStudent.phone) || !validatePhone(newStudent.guardianPhone)) {
+      alert('Validation Error: Mobile numbers must be exactly 11 digits.');
+      return;
+    }
+    const student: User = {
+      id: newStudent.id,
+      name: newStudent.name,
+      password: newStudent.password,
+      role: UserRole.STUDENT,
+      batch: newStudent.assignedClass,
+      assignedClass: newStudent.assignedClass,
+      sscResult: newStudent.sscResult,
+      hscResult: newStudent.hscResult,
+      phone: newStudent.phone,
+      guardianPhone: newStudent.guardianPhone,
+      pastAddress: newStudent.pastAddress,
+      presentAddress: newStudent.presentAddress,
+      status: 'active',
+      createdAt: new Date().toISOString().split('T')[0]
+    };
+    setUsers([...users, student]);
+    setIsAddStudentModalOpen(false);
+    setNewStudent({
+      name: '', id: '', password: '', assignedClass: '', sscResult: '', hscResult: '',
+      phone: '', guardianPhone: '', pastAddress: '', presentAddress: ''
+    });
+  };
+
+  const handleAddTeacher = () => {
+    if (!newTeacher.name || !newTeacher.id || !newTeacher.password) {
+      alert('Required fields: Name, ID, Password');
+      return;
+    }
+    if (!validatePhone(newTeacher.phone)) {
+      alert('Validation Error: Mobile number must be exactly 11 digits.');
+      return;
+    }
+    const teacher: User = {
+      id: newTeacher.id,
+      name: newTeacher.name,
+      password: newTeacher.password,
+      role: UserRole.TEACHER,
+      phone: newTeacher.phone,
+      presentAddress: newTeacher.presentAddress,
+      nidNumber: newTeacher.nidNumber,
+      status: 'active',
+      createdAt: new Date().toISOString().split('T')[0]
+    };
+    setUsers([...users, teacher]);
+    setIsAddTeacherModalOpen(false);
+    setNewTeacher({ name: '', id: '', password: '', phone: '', presentAddress: '', nidNumber: '' });
   };
 
   const handleCollectPayment = () => {
@@ -254,13 +351,14 @@ const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
       alert("Validation Error: Staff Name and Amount are required.");
       return;
     }
-    const e: Expense = {
+    const s: Salary = {
       id: 'SAL' + Date.now(),
-      description: `Selley (Teacher/Staff): ${salaryForm.staffName} for ${salaryForm.month}${salaryForm.note ? ` - ${salaryForm.note}` : ''}`,
+      teacherId: salaryForm.staffName, // Using staffName as ID for now or lookup
       amount: Number(salaryForm.amount),
-      date: new Date().toISOString().split('T')[0]
+      date: new Date().toISOString().split('T')[0],
+      month: salaryForm.month
     };
-    setExpenses([...expenses, e]);
+    setSalaries([...salaries, s]);
     setIsSalaryModalOpen(false);
     setSalaryForm({ staffName: '', amount: 0, month: new Date().toISOString().slice(0, 7), note: '' });
   };
@@ -347,22 +445,66 @@ const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
   return (
     <div className="space-y-6">
       <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-        {(['overview', 'users', 'finance', 'notices', 'leaderboard', 'admission', 'settings'] as const).map(tab => (
+        {(['overview', 'users', 'finance', 'notices', 'leaderboard', 'admission', 'settings', 'financial-dashboard', 'history'] as const).map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-2 rounded-full text-sm font-semibold transition-all whitespace-nowrap ${activeTab === tab ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}`}>{tab.toUpperCase()}</button>
         ))}
       </div>
 
       {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm text-left"><p className="text-gray-400 text-[10px] uppercase font-black tracking-widest mb-1 text-left">Gross Collection</p><h3 className="text-3xl font-black text-blue-600">৳{totalCollection}</h3></div>
-          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm text-left"><p className="text-gray-400 text-[10px] uppercase font-black tracking-widest mb-1 text-left">Gross Expenses</p><h3 className="text-3xl font-black text-red-600">৳{totalExpense}</h3></div>
-          <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm text-left"><p className="text-gray-400 text-[10px] uppercase font-black tracking-widest mb-1 text-left">Net Earnings</p><h3 className="text-3xl font-black text-emerald-600">৳{netProfit}</h3></div>
+        <div className="space-y-6 text-left animate-in fade-in duration-500">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm text-left">
+              <p className="text-gray-400 text-[10px] uppercase font-black tracking-widest mb-1 text-left">Total Money Collected</p>
+              <h3 className="text-3xl font-black text-blue-600">৳{totalCollection}</h3>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm text-left">
+              <p className="text-gray-400 text-[10px] uppercase font-black tracking-widest mb-1 text-left">Total Staff Salary Paid</p>
+              <h3 className="text-3xl font-black text-indigo-600">৳{totalSalaryPaid}</h3>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm text-left">
+              <p className="text-gray-400 text-[10px] uppercase font-black tracking-widest mb-1 text-left">Total Expenses</p>
+              <h3 className="text-3xl font-black text-red-600">৳{totalExpense}</h3>
+            </div>
+            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm text-left">
+              <p className="text-gray-400 text-[10px] uppercase font-black tracking-widest mb-1 text-left">Net Profit</p>
+              <h3 className="text-3xl font-black text-emerald-600">৳{netProfit}</h3>
+            </div>
+          </div>
+
+          {aiInsights.length > 0 && (
+            <div className="bg-blue-600 p-8 rounded-[2.5rem] text-white shadow-xl shadow-blue-100 text-left">
+              <div className="flex items-center gap-4 mb-6 text-left">
+                <div className="bg-white/20 p-3 rounded-2xl">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                </div>
+                <div className="text-left">
+                  <h4 className="text-lg font-black uppercase tracking-tight text-left">AI Financial Insights</h4>
+                  <p className="text-blue-100 text-[10px] font-bold uppercase tracking-widest text-left">Powered by Gemini Pro</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+                {aiInsights.map((insight, idx) => (
+                  <div key={idx} className="bg-white/10 p-4 rounded-2xl border border-white/10 text-sm font-medium text-left">
+                    {insight}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
+
       {activeTab === 'users' && (
         <div className="space-y-6 text-left">
-          <div className="flex justify-between items-center"><h3 className="text-xl font-black text-gray-800 tracking-tight uppercase">User Management</h3><button onClick={() => setIsUserModalOpen(true)} className="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:bg-blue-700 transition-all">+ Add Profile</button></div>
+          <div className="flex justify-between items-center">
+            <h3 className="text-xl font-black text-gray-800 tracking-tight uppercase">User Management</h3>
+            <div className="flex gap-2">
+              <button onClick={() => setIsAddStudentModalOpen(true)} className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:bg-emerald-700 transition-all">+ Add Student</button>
+              <button onClick={() => setIsAddTeacherModalOpen(true)} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:bg-indigo-700 transition-all">+ Add Teacher</button>
+              <button onClick={() => setIsUserModalOpen(true)} className="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:bg-blue-700 transition-all">+ Add Profile</button>
+            </div>
+          </div>
           <div className="bg-white p-4 rounded-2xl border flex flex-col sm:flex-row gap-4 shadow-sm text-left">
             <select 
               value={userRoleFilter} 
@@ -747,6 +889,96 @@ const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
         </div>
       )}
 
+      {activeTab === 'financial-dashboard' && (
+        <div className="space-y-6 text-left animate-in fade-in duration-500">
+          <div className="bg-white p-8 rounded-3xl border shadow-sm">
+            <h3 className="text-2xl font-black text-gray-800 uppercase tracking-tight mb-8">Financial Dashboard (Current Month)</h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
+                <p className="text-blue-400 text-[10px] uppercase font-black tracking-widest mb-1">Collected</p>
+                <h3 className="text-3xl font-black text-blue-600">৳{currentMonthCollection}</h3>
+              </div>
+              <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100">
+                <p className="text-indigo-400 text-[10px] uppercase font-black tracking-widest mb-1">Salary Paid</p>
+                <h3 className="text-3xl font-black text-indigo-600">৳{currentMonthSalary}</h3>
+              </div>
+              <div className="bg-red-50 p-6 rounded-2xl border border-red-100">
+                <p className="text-red-400 text-[10px] uppercase font-black tracking-widest mb-1">Expenses</p>
+                <h3 className="text-3xl font-black text-red-600">৳{currentMonthExpense}</h3>
+              </div>
+              <div className="bg-emerald-50 p-6 rounded-2xl border border-emerald-100">
+                <p className="text-emerald-400 text-[10px] uppercase font-black tracking-widest mb-1">Net Profit</p>
+                <h3 className="text-3xl font-black text-emerald-600">৳{currentMonthProfit}</h3>
+              </div>
+            </div>
+            
+            <div className="mt-10 p-6 bg-slate-50 rounded-2xl border border-slate-100">
+              <h4 className="text-sm font-black text-gray-600 uppercase tracking-widest mb-4">Overall Totals</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <p className="text-[9px] font-bold text-gray-400 uppercase">Total Collection</p>
+                  <p className="text-lg font-black text-gray-700">৳{totalCollection}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold text-gray-400 uppercase">Total Salaries</p>
+                  <p className="text-lg font-black text-gray-700">৳{totalSalaryPaid}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold text-gray-400 uppercase">Total Expenses</p>
+                  <p className="text-lg font-black text-gray-700">৳{totalExpense}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold text-gray-400 uppercase">Total Profit</p>
+                  <p className="text-lg font-black text-emerald-600">৳{netProfit}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'history' && (
+        <div className="space-y-6 text-left animate-in fade-in duration-500">
+          <div className="bg-white p-8 rounded-3xl border shadow-sm">
+            <h3 className="text-2xl font-black text-gray-800 uppercase tracking-tight mb-8">Dashboard History</h3>
+            {dashboardHistory.length === 0 ? (
+              <div className="py-20 text-center border-4 border-dashed border-gray-50 rounded-3xl">
+                <p className="text-gray-400 font-black uppercase text-xs tracking-widest">No historical data available yet</p>
+                <p className="text-[10px] text-gray-300 mt-2 uppercase">History is generated after the 5th of each month</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {dashboardHistory.slice().reverse().map(h => (
+                  <div key={h.id} className="bg-slate-50 p-6 rounded-2xl border border-slate-100 hover:shadow-md transition-all">
+                    <div className="flex justify-between items-center mb-4">
+                      <h4 className="text-lg font-black text-blue-600 uppercase">{new Date(h.month + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h4>
+                      <span className="bg-emerald-100 text-emerald-600 text-[9px] font-black px-2 py-1 rounded uppercase">Archived</span>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-400 font-bold uppercase">Collection</span>
+                        <span className="font-black text-gray-700">৳{h.collected}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-400 font-bold uppercase">Salaries</span>
+                        <span className="font-black text-gray-700">৳{h.salaryPaid}</span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-400 font-bold uppercase">Expenses</span>
+                        <span className="font-black text-gray-700">৳{h.expenses}</span>
+                      </div>
+                      <div className="pt-2 border-t border-slate-200 flex justify-between">
+                        <span className="text-[10px] font-black text-gray-500 uppercase">Net Profit</span>
+                        <span className="text-sm font-black text-emerald-600">৳{h.profit}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {activeTab === 'settings' && (
         <div className="space-y-8 max-w-4xl mx-auto text-left">
           <div className="bg-white p-10 rounded-[2.5rem] border shadow-sm text-left">
@@ -832,6 +1064,108 @@ const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
                 <button onClick={() => setIsOwnerPasswordModalOpen(false)} className="flex-1 border-2 border-slate-100 py-4 rounded-2xl font-black text-xs text-gray-400 uppercase tracking-widest">Cancel</button>
                 <button onClick={handleChangeOwnerPassword} className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-100">Update Password</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isAddStudentModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[70] p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-2xl p-10 shadow-2xl text-left overflow-y-auto max-h-[90vh]">
+            <h3 className="text-3xl font-black text-gray-800 mb-8 uppercase tracking-tight">Add New Student</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Full Name</label>
+                <input type="text" className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newStudent.name} onChange={(e) => setNewStudent({ ...newStudent, name: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Login ID</label>
+                <input type="text" className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newStudent.id} onChange={(e) => setNewStudent({ ...newStudent, id: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Password</label>
+                <input type="text" className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newStudent.password} onChange={(e) => setNewStudent({ ...newStudent, password: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Assigned Class</label>
+                <select className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newStudent.assignedClass} onChange={(e) => setNewStudent({ ...newStudent, assignedClass: e.target.value })}>
+                  <option value="">Select Class</option>
+                  <option value="Class 7">Class 7</option>
+                  <option value="Class 8">Class 8</option>
+                  <option value="Class 9">Class 9</option>
+                  <option value="Class 10">Class 10</option>
+                  <option value="SSC Candidate">SSC Candidate</option>
+                  <option value="Inter 1st Year">Inter 1st Year</option>
+                  <option value="Inter 2nd Year">Inter 2nd Year</option>
+                  <option value="HSC Candidate">HSC Candidate</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">SSC GPA</label>
+                <input type="text" className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newStudent.sscResult} onChange={(e) => setNewStudent({ ...newStudent, sscResult: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">HSC GPA</label>
+                <input type="text" className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newStudent.hscResult} onChange={(e) => setNewStudent({ ...newStudent, hscResult: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Student Phone (11 digits)</label>
+                <input type="text" maxLength={11} className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newStudent.phone} onChange={(e) => setNewStudent({ ...newStudent, phone: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Guardian Phone (11 digits)</label>
+                <input type="text" maxLength={11} className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newStudent.guardianPhone} onChange={(e) => setNewStudent({ ...newStudent, guardianPhone: e.target.value })} />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Past Address</label>
+                <textarea className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newStudent.pastAddress} onChange={(e) => setNewStudent({ ...newStudent, pastAddress: e.target.value })} />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Present Address</label>
+                <textarea className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newStudent.presentAddress} onChange={(e) => setNewStudent({ ...newStudent, presentAddress: e.target.value })} />
+              </div>
+            </div>
+            <div className="flex gap-4 pt-8">
+              <button onClick={() => setIsAddStudentModalOpen(false)} className="flex-1 border-2 border-slate-100 py-4 rounded-2xl font-black text-xs text-gray-400 uppercase tracking-widest">Cancel</button>
+              <button onClick={handleAddStudent} className="flex-1 bg-emerald-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-emerald-100">Add Student</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isAddTeacherModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[70] p-4 animate-in fade-in duration-300">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-2xl p-10 shadow-2xl text-left overflow-y-auto max-h-[90vh]">
+            <h3 className="text-3xl font-black text-gray-800 mb-8 uppercase tracking-tight">Add New Teacher</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Full Name</label>
+                <input type="text" className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newTeacher.name} onChange={(e) => setNewTeacher({ ...newTeacher, name: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Login ID</label>
+                <input type="text" className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newTeacher.id} onChange={(e) => setNewTeacher({ ...newTeacher, id: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Password</label>
+                <input type="text" className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newTeacher.password} onChange={(e) => setNewTeacher({ ...newTeacher, password: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Phone Number (11 digits)</label>
+                <input type="text" maxLength={11} className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newTeacher.phone} onChange={(e) => setNewTeacher({ ...newTeacher, phone: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">NID Number</label>
+                <input type="text" className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newTeacher.nidNumber} onChange={(e) => setNewTeacher({ ...newTeacher, nidNumber: e.target.value })} />
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Address</label>
+                <textarea className="w-full border-2 border-slate-50 rounded-2xl p-4 font-bold bg-slate-50 outline-none focus:border-blue-500 transition-all" value={newTeacher.presentAddress} onChange={(e) => setNewTeacher({ ...newTeacher, presentAddress: e.target.value })} />
+              </div>
+            </div>
+            <div className="flex gap-4 pt-8">
+              <button onClick={() => setIsAddTeacherModalOpen(false)} className="flex-1 border-2 border-slate-100 py-4 rounded-2xl font-black text-xs text-gray-400 uppercase tracking-widest">Cancel</button>
+              <button onClick={handleAddTeacher} className="flex-1 bg-indigo-600 text-white py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-100">Add Teacher</button>
             </div>
           </div>
         </div>

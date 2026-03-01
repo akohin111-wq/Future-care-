@@ -1,4 +1,4 @@
-import { User, Payment, Attendance, Result, Expense, Notice, Notification, SystemSettings, AdmissionApplication } from '../types';
+import { User, Payment, Attendance, Result, Expense, Notice, Notification, SystemSettings, AdmissionApplication, Salary, DashboardHistory } from '../types';
 
 const STORAGE_KEYS = {
   USERS: 'fccc_users',
@@ -9,7 +9,9 @@ const STORAGE_KEYS = {
   NOTICES: 'fccc_notices',
   NOTIFICATIONS: 'fccc_notifications',
   APPLICATIONS: 'fccc_applications',
-  SETTINGS: 'fccc_settings'
+  SETTINGS: 'fccc_settings',
+  SALARIES: 'fccc_salaries',
+  DASHBOARD_HISTORY: 'fccc_dashboard_history'
 };
 
 const getLocal = <T>(key: string, defaultValue: T): T => {
@@ -143,5 +145,31 @@ export const db = {
   },
   async saveSettings(settings: SystemSettings) {
     saveLocal(STORAGE_KEYS.SETTINGS, settings);
+  },
+
+  // Salaries
+  async getSalaries() {
+    return getLocal<Salary[]>(STORAGE_KEYS.SALARIES, []);
+  },
+  async saveSalary(salary: Salary) {
+    const salaries = await this.getSalaries();
+    salaries.push(salary);
+    saveLocal(STORAGE_KEYS.SALARIES, salaries);
+  },
+  async saveSalaries(salaries: Salary[]) {
+    saveLocal(STORAGE_KEYS.SALARIES, salaries);
+  },
+
+  // Dashboard History
+  async getDashboardHistory() {
+    return getLocal<DashboardHistory[]>(STORAGE_KEYS.DASHBOARD_HISTORY, []);
+  },
+  async saveDashboardHistory(history: DashboardHistory) {
+    const histories = await this.getDashboardHistory();
+    histories.push(history);
+    saveLocal(STORAGE_KEYS.DASHBOARD_HISTORY, histories);
+  },
+  async saveDashboardHistories(histories: DashboardHistory[]) {
+    saveLocal(STORAGE_KEYS.DASHBOARD_HISTORY, histories);
   }
 };
